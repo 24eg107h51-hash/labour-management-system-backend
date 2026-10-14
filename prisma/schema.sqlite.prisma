@@ -1,0 +1,544 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 1. Users
+model User {
+  id           String      @id @default(uuid())
+  email        String      @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  phone        String?
+  status       String      @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  avatarUrl    String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  userRoles       UserRole[]
+  labourerProfile Labourer?
+  contractor      Contractor?
+  auditLogs       AuditLog[]
+  notifications   Notification[]
+  managedProjects Project[]            @relation("ProjectManager")
+  approvedAtts    Attendance[]         @relation("SupervisorApproval")
+  approvedLeaves  LeaveRequest[]       @relation("LeaveReviewer")
+  calculatedSals  SalaryRecord[]       @relation("SalaryCalculator")
+  approvedSals    SalaryRecord[]       @relation("SalaryApprover")
+  paymentsHandled PaymentTransaction[] @relation("PaymentHandler")
+
+  @@map("users")
+}
+
+// 2. Roles
+model Role {
+  id          String       @id @default(uuid())
+  name        String       @unique // ADMIN, SUPERVISOR, CONTRACTOR, LABOURER
+  description String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  userRoles   UserRole[]
+  permissions Permission[]
+
+  @@map("roles")
+}
+
+// 3. Permissions
+model Permission {
+  id        String   @id @default(uuid())
+  roleId    String
+  module    String   // LABOURERS, ATTENDANCE, PROJECTS, SALARIES, PAYMENTS, REPORTS, SETTINGS
+  action    String   // CREATE, READ, UPDATE, DELETE, APPROVE
+  createdAt DateTime @default(now())
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@map("permissions")
+}
+
+// 4. User Roles
+model UserRole {
+  id        String   @id @default(uuid())
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+// 5. Labourers
+model Labourer {
+  id               String    @id @default(uuid())
+  labourId         String    @unique // LBR-2026-0001
+  userId           String?   @unique
+  contractorId     String?
+  firstName        String
+  lastName         String
+  phone            String
+  emergencyContact String?
+  address          String?
+  city             String?
+  state            String?
+  postalCode       String?
+  dateOfBirth      DateTime?
+  gender           String?   // MALE, FEMALE, OTHER
+  joiningDate      DateTime  @default(now())
+  skills           String?   // Comma separated e.g. "Carpentry, Masonry, Plumbing"
+  dailyWageRate    Float     @default(500.0)
+  employmentType   String    @default("FULL_TIME") // FULL_TIME, PART_TIME, CONTRACT, DAILY_WAGE
+  status           String    @default("ACTIVE") // ACTIVE, INACTIVE, TERMINATED, ON_LEAVE
+  photoUrl         String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user               User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contractor         Contractor?          @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  projectAssignments ProjectAssignment[]
+  taskAssignments    TaskAssignment[]
+  attendances        Attendance[]
+  leaveRequests      LeaveRequest[]
+  leaveBalances      LeaveBalance[]
+  wageRates          WageRate[]
+  overtimeRecords    OvertimeRecord[]
+  salaryRecords      SalaryRecord[]
+  salarySlips        SalarySlip[]
+  payments           PaymentTransaction[]
+  advances           LabourAdvance[]
+  deductions         Deduction[]
+  documents          Document[]
+  notifications      Notification[]
+
+  @@map("labourers")
+}
+
+// 6. Contractors
+model Contractor {
+  id                String    @id @default(uuid())
+  userId            String?   @unique
+  companyName       String
+  contactPerson     String
+  email             String
+  phone             String
+  address           String?
+  taxId             String?
+  licenseNumber     String?
+  contractStartDate DateTime?
+  contractEndDate   DateTime?
+  status            String    @default("ACTIVE") // ACTIVE, INACTIVE, EXPIRED
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user               User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  labourers          Labourer[]
+  projectAssignments ProjectAssignment[]
+  documents          Document[]
+
+  @@map("contractors")
+}
+
+// 7. Projects
+model Project {
+  id              String    @id @default(uuid())
+  projectCode     String    @unique // PRJ-2026-001
+  name            String
+  description     String?
+  clientName      String?
+  location        String?
+  startDate       DateTime
+  endDate         DateTime?
+  estimatedBudget Float     @default(0.0)
+  status          String    @default("ACTIVE") // PLANNING, ACTIVE, ON_HOLD, COMPLETED, CANCELLED
+  managerId       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  manager            User?                @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
+  projectAssignments ProjectAssignment[]
+  workTasks          WorkTask[]
+  attendances        Attendance[]
+  overtimeRecords    OvertimeRecord[]
+  documents          Document[]
+
+  @@map("projects")
+}
+
+// 8. Project Assignments
+model ProjectAssignment {
+  id           String    @id @default(uuid())
+  projectId    String
+  labourerId   String
+  contractorId String?
+  assignedDate DateTime  @default(now())
+  releaseDate  DateTime?
+  role         String?   // e.g. Lead Mason, Helper, Supervisor
+  status       String    @default("ACTIVE") // ACTIVE, RELEASED
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  labourer   Labourer    @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+  contractor Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, labourerId, assignedDate])
+  @@map("project_assignments")
+}
+
+// 9. Work Tasks
+model WorkTask {
+  id             String    @id @default(uuid())
+  projectId      String
+  title          String
+  description    String?
+  taskType       String?   // Excavation, Masonry, Painting, Electrical
+  priority       String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  targetQuantity Float     @default(0.0)
+  unit           String?   // sqft, meters, units, tons
+  startDate      DateTime?
+  dueDate        DateTime?
+  status         String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignments TaskAssignment[]
+
+  @@map("work_tasks")
+}
+
+// 10. Task Assignments
+model TaskAssignment {
+  id                String   @id @default(uuid())
+  taskId            String
+  labourerId        String
+  assignedHours     Float    @default(8.0)
+  completedQuantity Float    @default(0.0)
+  productivityScore Float    @default(100.0) // Percentage or score
+  status            String   @default("ASSIGNED") // ASSIGNED, IN_PROGRESS, COMPLETED, APPROVED
+  supervisorNotes   String?
+  approvedById      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  task     WorkTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  labourer Labourer @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+
+  @@map("task_assignments")
+}
+
+// 11. Attendance
+model Attendance {
+  id            String    @id @default(uuid())
+  labourerId    String
+  projectId     String?
+  date          DateTime  // Date portion (e.g. 2026-10-14)
+  checkInTime   DateTime?
+  checkOutTime  DateTime?
+  status        String    @default("PRESENT") // PRESENT, ABSENT, HALF_DAY, PAID_LEAVE, OVERTIME
+  workingHours  Float     @default(8.0)
+  overtimeHours Float     @default(0.0)
+  isApproved    Boolean   @default(false)
+  approvedById  String?
+  approvalNotes String?
+  remarks       String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  labourer   Labourer @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+  project    Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  approvedBy User?    @relation("SupervisorApproval", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@unique([labourerId, date])
+  @@map("attendance")
+}
+
+// 12. Leave Requests
+model LeaveRequest {
+  id           String    @id @default(uuid())
+  labourerId   String
+  leaveType    String    // CASUAL, SICK, ANNUAL, EMERGENCY, UNPAID
+  startDate    DateTime
+  endDate      DateTime
+  totalDays    Float     @default(1.0)
+  reason       String
+  status       String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  reviewedById String?
+  reviewNotes  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  labourer   Labourer @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+  reviewedBy User?    @relation("LeaveReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@map("leave_requests")
+}
+
+// 13. Leave Balances
+model LeaveBalance {
+  id          String   @id @default(uuid())
+  labourerId  String
+  year        Int
+  casualLeave Float    @default(12.0)
+  sickLeave   Float    @default(10.0)
+  annualLeave Float    @default(15.0)
+  usedCasual  Float    @default(0.0)
+  usedSick    Float    @default(0.0)
+  usedAnnual  Float    @default(0.0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  labourer Labourer @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+
+  @@unique([labourerId, year])
+  @@map("leave_balances")
+}
+
+// 14. Wage Rates
+model WageRate {
+  id                 String    @id @default(uuid())
+  labourerId         String
+  rateType           String    @default("DAILY") // DAILY, HOURLY, MONTHLY
+  baseRate           Float
+  overtimeHourlyRate Float     @default(0.0)
+  effectiveFrom      DateTime  @default(now())
+  effectiveTo        DateTime?
+  currency           String    @default("INR")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  labourer Labourer @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+
+  @@map("wage_rates")
+}
+
+// 15. Overtime Records
+model OvertimeRecord {
+  id               String   @id @default(uuid())
+  labourerId       String
+  projectId        String?
+  date             DateTime
+  overtimeHours    Float
+  hourlyRate       Float
+  calculatedAmount Float
+  status           String   @default("APPROVED") // PENDING, APPROVED, REJECTED
+  approvedById     String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  labourer Labourer @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+  project  Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@map("overtime_records")
+}
+
+// 16. Salary Records
+model SalaryRecord {
+  id                String    @id @default(uuid())
+  salaryCode        String    @unique // SAL-2026-10-001
+  labourerId        String
+  periodMonth       String    // 2026-10
+  startDate         DateTime
+  endDate           DateTime
+  baseWages         Float     @default(0.0)
+  overtimeAmount    Float     @default(0.0)
+  bonusAmount       Float     @default(0.0)
+  deductionsAmount  Float     @default(0.0)
+  advancesRecovered Float     @default(0.0)
+  netPay            Float     @default(0.0)
+  status            String    @default("CALCULATED") // DRAFT, CALCULATED, APPROVED, PARTIALLY_PAID, PAID, CANCELLED
+  calculatedById    String?
+  approvedById      String?
+  approvalDate      DateTime?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  labourer     Labourer             @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+  calculatedBy User?                @relation("SalaryCalculator", fields: [calculatedById], references: [id], onDelete: SetNull)
+  approvedBy   User?                @relation("SalaryApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  components   SalaryComponent[]
+  salarySlip   SalarySlip?
+  payments     PaymentTransaction[]
+  deductions   Deduction[]
+
+  @@unique([labourerId, periodMonth])
+  @@map("salary_records")
+}
+
+// 17. Salary Components
+model SalaryComponent {
+  id             String   @id @default(uuid())
+  salaryRecordId String
+  type           String   // EARNING, DEDUCTION
+  name           String   // Base Wage, Overtime, Safety Bonus, Advance Recovery, Tax
+  amount         Float
+  description    String?
+  createdAt      DateTime @default(now())
+
+  salaryRecord SalaryRecord @relation(fields: [salaryRecordId], references: [id], onDelete: Cascade)
+
+  @@map("salary_components")
+}
+
+// 18. Salary Slips
+model SalarySlip {
+  id               String   @id @default(uuid())
+  slipNumber       String   @unique // SLIP-2026-10-001
+  salaryRecordId   String   @unique
+  labourerId       String
+  generatedDate    DateTime @default(now())
+  period           String   // October 2026
+  totalDaysWorked  Float    @default(0.0)
+  totalHoursWorked Float    @default(0.0)
+  grossPay         Float    @default(0.0)
+  totalDeductions  Float    @default(0.0)
+  netPay           Float    @default(0.0)
+  pdfPath          String?
+  createdAt        DateTime @default(now())
+
+  salaryRecord SalaryRecord @relation(fields: [salaryRecordId], references: [id], onDelete: Cascade)
+  labourer     Labourer     @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+
+  @@map("salary_slips")
+}
+
+// 19. Payment Transactions
+model PaymentTransaction {
+  id             String   @id @default(uuid())
+  transactionRef String   @unique // TXN-20261014-001
+  salaryRecordId String
+  labourerId     String
+  amount         Float
+  paymentMethod  String   @default("BANK_TRANSFER") // BANK_TRANSFER, CASH, CHEQUE, UPI
+  paymentDate    DateTime @default(now())
+  status         String   @default("COMPLETED") // COMPLETED, PENDING, FAILED
+  paidById       String?
+  remarks        String?
+  createdAt      DateTime @default(now())
+
+  salaryRecord SalaryRecord @relation(fields: [salaryRecordId], references: [id], onDelete: Cascade)
+  labourer     Labourer     @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+  paidBy       User?        @relation("PaymentHandler", fields: [paidById], references: [id], onDelete: SetNull)
+
+  @@map("payment_transactions")
+}
+
+// 20. Labour Advances
+model LabourAdvance {
+  id               String    @id @default(uuid())
+  labourerId       String
+  amount           Float
+  requestDate      DateTime  @default(now())
+  disbursementDate DateTime?
+  recoveryStatus   String    @default("PENDING") // PENDING, PARTIAL, RECOVERED
+  recoveredAmount  Float     @default(0.0)
+  remainingAmount  Float
+  reason           String?
+  approvedById     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  labourer Labourer @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+
+  @@map("labour_advances")
+}
+
+// 21. Deductions
+model Deduction {
+  id             String    @id @default(uuid())
+  labourerId     String
+  salaryRecordId String?
+  type           String    // TAX, INSURANCE, PENALTY, ADVANCE, EQUIPMENT_DAMAGE, OTHER
+  amount         Float
+  date           DateTime  @default(now())
+  reason         String?
+  status         String    @default("PENDING") // PENDING, APPLIED, WAIVED
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  labourer     Labourer      @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+  salaryRecord SalaryRecord? @relation(fields: [salaryRecordId], references: [id], onDelete: SetNull)
+
+  @@map("deductions")
+}
+
+// 22. Notifications
+model Notification {
+  id         String   @id @default(uuid())
+  userId     String?
+  labourerId String?
+  title      String
+  message    String
+  type       String   @default("SYSTEM") // ATTENDANCE, LEAVE, WAGE, PAYMENT, TASK, SYSTEM
+  isRead     Boolean  @default(false)
+  link       String?
+  createdAt  DateTime @default(now())
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  labourer Labourer? @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+// 23. Documents
+model Document {
+  id           String   @id @default(uuid())
+  labourerId   String?
+  projectId    String?
+  contractorId String?
+  title        String
+  documentType String   // ID_PROOF, CONTRACT, CERTIFICATE, MEDICAL, PROFILE_PHOTO, PAYSLIP, OTHER
+  fileUrl      String
+  fileName     String
+  fileSize     Int
+  mimeType     String
+  uploadedById String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  labourer   Labourer?   @relation(fields: [labourerId], references: [id], onDelete: Cascade)
+  project    Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contractor Contractor? @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+
+  @@map("documents")
+}
+
+// 24. Audit Logs
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String   // CREATE, UPDATE, DELETE, APPROVE, PAYMENT, LOGIN, LOGOUT
+  module    String   // AUTH, LABOURER, ATTENDANCE, SALARY, PAYMENT, PROJECT, SETTINGS
+  targetId  String?
+  details   String?  // JSON formatted details of the action
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+// 25. System Settings
+model SystemSetting {
+  id          String   @id @default(uuid())
+  category    String   // COMPANY, WAGE_RULES, WORKING_HOURS, LEAVE_POLICIES, SYSTEM
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}

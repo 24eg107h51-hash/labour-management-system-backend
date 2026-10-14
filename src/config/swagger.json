@@ -1,0 +1,211 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Labour Management System (LMS) API",
+    "version": "1.0.0",
+    "description": "Comprehensive REST API for Labour Registration, Attendance, Wages, Projects, Contractors, and Analytics."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5000",
+      "description": "Local Development Server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "summary": "User Login",
+        "tags": ["Authentication"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": { "type": "string", "example": "admin@lms.com" },
+                  "password": { "type": "string", "example": "Admin@123" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Login successful returning JWT token and user profile." },
+          "401": { "description": "Invalid credentials." }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "summary": "Get authenticated user profile",
+        "tags": ["Authentication"],
+        "responses": {
+          "200": { "description": "Authenticated profile returned." }
+        }
+      }
+    },
+    "/api/labourers": {
+      "get": {
+        "summary": "List labourers with pagination, search, and filters",
+        "tags": ["Labourers"],
+        "parameters": [
+          { "name": "search", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "TERMINATED", "ON_LEAVE"] } },
+          { "name": "contractorId", "in": "query", "schema": { "type": "string" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 10 } }
+        ],
+        "responses": {
+          "200": { "description": "Array of labourers with pagination metadata." }
+        }
+      },
+      "post": {
+        "summary": "Register a new labourer",
+        "tags": ["Labourers"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["firstName", "lastName", "phone"],
+                "properties": {
+                  "firstName": { "type": "string" },
+                  "lastName": { "type": "string" },
+                  "phone": { "type": "string" },
+                  "dailyWageRate": { "type": "number", "default": 500 },
+                  "skills": { "type": "string" },
+                  "contractorId": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Labourer registered with unique labour ID." }
+        }
+      }
+    },
+    "/api/attendance": {
+      "get": {
+        "summary": "Retrieve attendance records",
+        "tags": ["Attendance"],
+        "parameters": [
+          { "name": "date", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "projectId", "in": "query", "schema": { "type": "string" } },
+          { "name": "labourerId", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Attendance list." }
+        }
+      },
+      "post": {
+        "summary": "Record daily attendance",
+        "tags": ["Attendance"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["labourerId"],
+                "properties": {
+                  "labourerId": { "type": "string" },
+                  "projectId": { "type": "string" },
+                  "date": { "type": "string", "format": "date" },
+                  "status": { "type": "string", "enum": ["PRESENT", "ABSENT", "HALF_DAY", "PAID_LEAVE", "OVERTIME"] },
+                  "workingHours": { "type": "number", "default": 8 },
+                  "overtimeHours": { "type": "number", "default": 0 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Attendance logged." },
+          "409": { "description": "Duplicate attendance entry detected." }
+        }
+      }
+    },
+    "/api/salaries/calculate": {
+      "post": {
+        "summary": "Calculate monthly wages and net pay using payroll formula",
+        "tags": ["Wages & Salaries"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["labourerId", "periodMonth"],
+                "properties": {
+                  "labourerId": { "type": "string" },
+                  "periodMonth": { "type": "string", "example": "2026-10" },
+                  "bonusAmount": { "type": "number", "default": 0 },
+                  "customDeductions": { "type": "number", "default": 0 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Salary record calculated with itemized earnings and deductions." }
+        }
+      }
+    },
+    "/api/payments": {
+      "post": {
+        "summary": "Process and record wage disbursement payment",
+        "tags": ["Payments"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["salaryRecordId", "amount"],
+                "properties": {
+                  "salaryRecordId": { "type": "string" },
+                  "amount": { "type": "number" },
+                  "paymentMethod": { "type": "string", "enum": ["BANK_TRANSFER", "CASH", "CHEQUE", "UPI"] },
+                  "transactionRef": { "type": "string" },
+                  "remarks": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Payment completed." },
+          "409": { "description": "Duplicate transaction detected." }
+        }
+      }
+    },
+    "/api/reports/dashboard": {
+      "get": {
+        "summary": "Get high-level dashboard metrics and charts data",
+        "tags": ["Reports & Analytics"],
+        "responses": {
+          "200": { "description": "Dashboard summary statistics." }
+        }
+      }
+    }
+  }
+}
